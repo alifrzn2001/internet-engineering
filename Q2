@@ -1,0 +1,326 @@
+# HTTP, Communication Models, Status Codes and Proxies
+
+## Question 1: HTTP Versions and Why HTTP/3 Uses UDP
+
+### A) Key Differences Between HTTP Versions
+
+```mermaid
+timeline
+    title Evolution of HTTP
+    HTTP/0.9 : Only GET : HTML transfer
+    HTTP/1.0 : Headers : Status codes : Content types
+    HTTP/1.1 : Persistent connections : Better caching
+    HTTP/2 : Multiplexing : Header compression
+    HTTP/3 : QUIC over UDP : Faster connections
+```
+
+| Version  | Key Features |
+| -------- | ------------ |
+| HTTP/0.9 | The first and simplest version. It only supported `GET` requests and was used to transfer HTML pages. |
+| HTTP/1.0 | Added request and response headers, status codes such as `404`, and support for different content types. A new connection was usually created for each request. |
+| HTTP/1.1 | Introduced persistent connections (`Keep-Alive`) and improved caching and request handling. |
+| HTTP/2   | Handles multiple requests at the same time over one connection. Also compresses headers and reduces communication overhead. |
+| HTTP/3   | Uses the `QUIC` protocol over `UDP`. Reduces connection delays and improves performance on unstable networks. |
+
+### B) Why Does HTTP/3 Use UDP?
+
+`HTTP/3` uses `UDP` because it has lower overhead and allows a faster transport protocol called `QUIC` to be built on top of it. `UDP` does not provide reliable delivery or congestion control by itself. These features are provided by `QUIC`.
+
+```mermaid
+flowchart TB
+    subgraph H2["HTTP/2 stack"]
+        direction TB
+        A1["HTTP/2"] --> A2["TLS"] --> A3["TCP"] --> A4["IP"]
+    end
+    subgraph H3["HTTP/3 stack"]
+        direction TB
+        B1["HTTP/3"] --> B2["QUIC<br/>reliability + congestion control + encryption"] --> B3["UDP"] --> B4["IP"]
+    end
+```
+
+One important advantage of `QUIC` is that losing a packet in one data stream does not necessarily stop the transfer of data in other streams. `QUIC` also provides built-in encryption and reduces the time needed to establish a secure connection. As a result, `HTTP/3` can load web pages faster, especially on unstable networks.
+
+---
+
+## Question 2: Stateless and Stateful Communication
+
+### A) Explain Stateless and Stateful Communication
+
+- **Stateless:** the server does not keep information about previous requests. Each request is processed independently.
+- **Stateful:** the server keeps information about the connection or previous requests and uses it in later requests.
+
+The main difference is how each method stores and manages the state of communication.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    Note over C,S: Stateless
+    C->>S: Request 1 (all needed info)
+    S-->>C: Response 1
+    C->>S: Request 2 (all needed info again)
+    S-->>C: Response 2
+    Note over C,S: Stateful
+    C->>S: Request 1
+    S-->>C: Response 1 (server stores state)
+    C->>S: Request 2 (relies on stored state)
+    S-->>C: Response 2
+```
+
+### B) Which Category Does HTTP Belong To, and How Is This Problem Solved?
+
+`HTTP` is a **Stateless** protocol. Each request is processed independently, and the server does not automatically remember previous requests. To keep user information between requests, methods such as `Cookie`, `Session`, and `Token` are used. For example, an online store can use a `Session` to remember a user's login status or shopping cart between different requests.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant S as Server
+    B->>S: POST /login (credentials)
+    S-->>B: 200 OK + Set-Cookie: session_id=abc123
+    B->>S: GET /cart (Cookie: session_id=abc123)
+    S-->>B: Cart contents of this user
+```
+
+---
+
+## Question 3: The Client/Server Limitation in HTTP and Its Solutions
+
+### A) Explain the Challenge
+
+In `HTTP`, communication usually starts with a client request, and the server sends information in response. Therefore, the server cannot directly send new information to the client without a request from the client. This creates challenges for applications such as `Webhook` systems, online chat, and alerting systems, where information needs to be delivered as soon as an event occurs.
+
+### B) Solutions to This Challenge
+
+#### 1. Polling
+
+The client regularly asks the server whether new information is available. If new information exists, the server sends it back. Polling is easy to implement, but repeated requests increase server load and network usage, even when there is no new information.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    C->>S: Any news?
+    S-->>C: No
+    C->>S: Any news?
+    S-->>C: No
+    C->>S: Any news?
+    S-->>C: Yes, new data
+```
+
+#### 2. Long Polling
+
+The client sends a request, but the server waits until new information becomes available or a timeout occurs before sending a response. After receiving the response, the client sends another request. Long Polling reduces unnecessary requests compared to regular Polling and is useful for chat applications and notifications. However, it still requires repeated HTTP requests.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    C->>S: Request
+    Note over S: Waits for new data or timeout
+    S-->>C: Response with new data
+    C->>S: New request immediately
+    Note over S: Waits again
+```
+
+#### 3. Server-Sent Events (SSE)
+
+With `SSE`, the client creates an `HTTP` connection, and the server uses the same connection to send new information whenever it becomes available. Communication is one-way: data flows from the server to the client. `SSE` is useful for notifications, application status updates, and live dashboards.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    C->>S: Open one HTTP connection
+    S-->>C: Event 1
+    S-->>C: Event 2
+    S-->>C: Event 3
+    Note over C,S: One-way, server to client
+```
+
+#### 4. WebSocket
+
+`WebSocket` provides a continuous, two-way connection between the client and the server. The connection starts with an `HTTP` request and then switches to the `WebSocket` protocol. After that, both sides can send information without creating a new HTTP request for every message. This method is useful for online chat, multiplayer games, and real-time applications.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    C->>S: HTTP request with Upgrade: websocket
+    S-->>C: 101 Switching Protocols
+    C->>S: Message
+    S-->>C: Message
+    S-->>C: Message
+    C->>S: Message
+    Note over C,S: Two-way connection stays open
+```
+
+#### 5. Webhook
+
+With a `Webhook`, when a specific event occurs in one service, that service sends an `HTTP` request, usually a `POST` request, to a predefined URL in another service. For example, after a successful payment, a payment gateway sends payment information to the online store's server. Webhooks are useful for communication between services. However, the receiving service must have a reachable URL, and it should have a plan for handling errors and retrying failed requests.
+
+```mermaid
+sequenceDiagram
+    participant G as Payment Gateway
+    participant W as Online Store
+    Note over G: Payment succeeded
+    G->>W: POST /webhook/payment (payment info)
+    W-->>G: 200 OK
+    Note over G,W: If it fails, the gateway retries
+```
+
+#### Summary of Solutions
+
+| Method       | Direction     | Connection             | Typical Use Case                  |
+| ------------ | ------------- | ---------------------- | --------------------------------- |
+| Polling      | Client pulls  | New request every time | Simple status checks              |
+| Long Polling | Client pulls  | Repeated, held open    | Chat, notifications               |
+| SSE          | Server to client | One persistent HTTP connection | Live dashboards, status updates |
+| WebSocket    | Two-way       | Persistent, upgraded   | Chat, games, real-time apps       |
+| Webhook      | Service to service | One request per event | Payment notifications             |
+
+---
+
+## Question 4: Identify the Parts of a Shadowsocks URL
+
+Given URL:
+
+`ss://asghar:1234!!@ss.myproxy.com:1234#shadowSocks1`
+
+```mermaid
+flowchart LR
+    U["ss://asghar:1234!!@ss.myproxy.com:1234#shadowSocks1"]
+    U --> S["Scheme: ss"]
+    U --> I["Info before @: asghar:1234!!"]
+    U --> H["Host: ss.myproxy.com"]
+    U --> P["Port: 1234"]
+    U --> F["Fragment: shadowSocks1"]
+```
+
+| Part                   | Value            | Description                                                                    |
+| ---------------------- | ---------------- | ------------------------------------------------------------------------------ |
+| Scheme                 | `ss`             | Indicates the Shadowsocks protocol.                                            |
+| Information before `@` | `asghar:1234!!`  | Contains connection or authentication information in this URL.                 |
+| Host                   | `ss.myproxy.com` | The address of the server.                                                     |
+| Port                   | `1234`           | The port used to connect to the server.                                        |
+| Fragment               | `shadowSocks1`   | A label used to identify the connection. It is usually not sent to the server. |
+
+> **Note:** In common `Shadowsocks` URL formats, the part before `@` usually contains encoded encryption-method and password information, rather than separate username and password fields. Therefore, interpreting `asghar` as the username and `1234!!` as the password depends on the specific URL format.
+
+---
+
+## Question 5: Choose the Appropriate HTTP Status Code for Each REST API Scenario
+
+```mermaid
+flowchart TD
+    Q{"Scenario"}
+    Q --> A["Database problem, login fails"] --> A1["500 or 503"]
+    Q --> B["Username does not exist"] --> B1["401"]
+    Q --> C["Website moved to another domain"] --> C1["301 or 308"]
+    Q --> D["Rate limit exceeded"] --> D1["429"]
+    Q --> E["JWT refresh succeeded"] --> E1["200 or 204"]
+    Q --> F["Blocked IP address"] --> F1["403"]
+```
+
+### 1. The Website Database Has a Problem, and Login Requests Fail
+
+Suitable codes: `500 Internal Server Error` or `503 Service Unavailable`
+
+If the website database has a problem and the server cannot process login requests, `500` may be used because an internal server error has occurred. However, if the database is temporarily unavailable and the login service cannot be used, `503` is more appropriate because it indicates that the service is temporarily unavailable.
+
+### 2. The Entered Username Does Not Exist on the Website, and Login Fails
+
+Suitable code: `401 Unauthorized`
+
+When a user enters a username that does not exist, authentication fails, and the server can return `401`. This code indicates that the authentication credentials are invalid. It is better to show the same error message for an incorrect username and an incorrect password so that attackers cannot determine whether an account exists.
+
+### 3. The Website Has Moved to Another Domain
+
+Suitable codes: `301 Moved Permanently` or `308 Permanent Redirect`
+
+If a website has permanently moved to another domain, the server can return `301` with the `Location` header to redirect the browser to the new address. The `308` code is also suitable for permanent redirects. The difference is that `308` preserves the HTTP request method. For example, if `old.com` moves to `new.com`, the server can include the new address in the `Location` header.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant O as old.com
+    participant N as new.com
+    B->>O: GET /
+    O-->>B: 301 Moved Permanently, Location: https://new.com
+    B->>N: GET /
+    N-->>B: 200 OK
+```
+
+### 4. A User Sends More Requests Than the Allowed Limit
+
+Suitable code: `429 Too Many Requests`
+
+If a user sends more requests to an API than the allowed limit within a specific period, the server can return `429`. For example, if the API limit is 100 requests per minute and the user exceeds this limit, additional requests may be rejected. The server can also use the `Retry-After` header to tell the user when to try again.
+
+### 5. A JWT Refresh Request Succeeds, and the New Token Is Returned in a Header
+
+Suitable code: `200 OK`
+
+If a user sends a request to refresh a `JWT` and the server validates the `Refresh Token` and generates a new access token, `200` is appropriate because the operation was successful. The new token can be included in a response header for the client to receive. If the response has no body, `204 No Content` may also be appropriate, provided that the new token is still available in a header.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    C->>S: Refresh request (Refresh Token)
+    Note over S: Validates the Refresh Token
+    S-->>C: 200 OK, new access token in a header
+```
+
+### 6. A User Tries to Access the Service from an IP Address Blocked Due to Sanctions
+
+Suitable code: `403 Forbidden`
+
+If a user sends a request from an IP address that is not allowed by the service's access policies, the server can return `403`. This code means that the server received the request but refuses to allow access. For example, if access from IP addresses in a specific region is blocked, requests from those addresses may be rejected with `403`.
+
+---
+
+## Question 6: Identify the Proxy Type Used in Each Scenario
+
+### 1. Using University Servers to Download Ubuntu Packages Instead of Central Servers
+
+**Proxy type:** Caching Proxy
+
+A university server stores copies of packages so users do not need to connect directly to the original servers every time they download the same packages. This reduces internet bandwidth usage, improves download speed, and reduces the load on central servers.
+
+```mermaid
+flowchart LR
+    U1["Student 1"] --> P["University caching proxy"]
+    U2["Student 2"] --> P
+    P -->|"First request only"| O["Ubuntu central servers"]
+    P -.->|"Later requests served from cache"| U2
+```
+
+### 2. Distributing Requests Based on Their Geographic Origin
+
+**Proxy type:** Reverse Proxy with Geo-routing
+
+The proxy directs requests to suitable servers based on the geographic location of the user. For example, requests from users in Europe are sent to servers in Europe, while requests from users in Asia are sent to servers in Asia. This reduces latency and improves response times.
+
+```mermaid
+flowchart LR
+    E["User in Europe"] --> R["Reverse Proxy<br/>Geo-routing"]
+    A["User in Asia"] --> R
+    R --> SE["Europe servers"]
+    R --> SA["Asia servers"]
+```
+
+### 3. Adding Authentication to a Very Old Service
+
+**Proxy type:** Reverse Proxy
+
+A `Reverse Proxy` is placed in front of the old service and performs authentication before forwarding requests to it. This makes it possible to add features such as token validation, username checks, and password authentication without changing the old service's code. Requests are forwarded to the original service only when the authentication information is valid.
+
+```mermaid
+flowchart LR
+    C["Client"] --> R{"Reverse Proxy<br/>Authentication"}
+    R -->|"Valid credentials"| L["Old service"]
+    R -->|"Invalid credentials"| X["Rejected"]
+```
+
+
+## Note: AI (Claude) was used to format this document in Markdown, generate the Mermaid diagrams, and fix spelling errors.
